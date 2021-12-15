@@ -32,7 +32,7 @@ ESPDash dashboard(&server);
 Card dash_step_delay(&dashboard, GENERIC_CARD, "Intervall Schrittmotor", "µs");
 Card dash_step_slider(&dashboard, SLIDER_CARD, "Intervallkorrektur", "µs", -500, 500);
 Card dash_change_dir(&dashboard, BUTTON_CARD, "Richtung umkehren");
-Card dash_reset_plattform(&dashboard, BUTTON_CARD, "Plattform 10 Minuten zurücksetzen");
+Card dash_reset_slider(&dashboard, SLIDER_CARD, "Plattform zurücksetzen", "min", -30, 30);
 Card dash_reset_last(&dashboard, BUTTON_CARD, "Letzte Plattformbewegung zurücksetzen");
 Card dash_runtime(&dashboard, GENERIC_CARD, "Laufzeit", "min");
 
@@ -62,7 +62,6 @@ uint32_t stepdelay = BASE_STEPS;
 unsigned long time_last_web_update = 0;
 unsigned long time_last_step = 0;
 long runtime = 0;
-
 void setup(void)
 {
   delay(1000);  // wait a second
@@ -161,12 +160,6 @@ void setup(void)
     flipDirection();
     dashboard.sendUpdates();
   });
-  dash_reset_plattform.attachCallback([&](bool value){
-    Serial.println("[dash_reset_plattform] Button Callback Triggered: "+String((value)?"true":"false"));
-//   dash_reset_plattform.update(value);
-//    dashboard.sendUpdates();
-    if (value) reset_plattform(60*10); // 10 Minuten zurücksetzen
-  });
   dash_reset_last.attachCallback([&](bool value){
     Serial.println("[dash_reset_last] Button Callback Triggered: "+String((value)?"true":"false"));
 //    dash_reset_last.update(value);
@@ -175,6 +168,20 @@ void setup(void)
       int reset_factor = (int)(runtime - 196) ; // Letzte Bewegung abzüglich 196 Sekunden Laufzeit für Be- und Entschleunigung
       reset_plattform(reset_factor);
     }
+  });
+  dash_reset_slider.attachCallback([&](int value){
+    Serial.println("Reset Slider Callback Triggered: "+String(value));
+      dash_reset_slider.update(value);
+    dashboard.sendUpdates();
+    if(value <0) {
+      flipDirection();
+      reset_plattform(60*-value);
+      flipDirection();
+    } else {
+      reset_plattform(60*value);
+    }
+    dash_reset_slider.update(0);
+    dashboard.sendUpdates();
   });
 
   //SETUP debug Serial
@@ -268,4 +275,8 @@ void loop()
     dashboard.sendUpdates();
     ArduinoOTA.handle();
   }
+
+  // Reset plattform if runtime of 50 minutes is exceeded
+  if (runtime >= 3000-196) // (50 Minuten abzüglich Be- und Entschleunigung)
+    reset_plattform(runtime);
 }
