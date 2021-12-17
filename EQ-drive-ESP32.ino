@@ -3,11 +3,10 @@
  * This is a free software with NO WARRANTY.
  */
 
- #if defined(ESP8266)
+#if defined(ESP8266)
   /* ESP8266 Dependencies */
   #include <ESP8266WiFi.h>
   #include <ESPAsyncTCP.h>
-  #include <ESPAsyncWebServer.h>
   #include <ESP8266mDNS.h>
   #include <WiFiUdp.h>
   #include <ArduinoOTA.h>
@@ -15,8 +14,8 @@
   /* ESP32 Dependencies */
   #include <WiFi.h>
   #include <AsyncTCP.h>
-  #include <ESPAsyncWebServer.h>
 #endif
+#include <ESPAsyncWebServer.h>
 #include <ESPDash.h>
 #include <LittleFS.h>
 #include <TMCStepper.h> // TMCStepper library
@@ -50,22 +49,22 @@ const char* password = ""; // Password
 IPAddress apIP(192, 168, 4, 1); // Static IP for local and gateway
 
 /* UI Settings */
-#define WEB_UPDATE_RATE 10000000 // update-rate for Webinterface in µs
+#define WEB_UPDATE_RATE 10 // update-rate for Webinterface in seconds
 
 /* Start Webserver */
 AsyncWebServer server(80);
 
 /* Attach ESP-DASH to AsyncWebServer */
 ESPDash dashboard(&server);
-Card dash_step_delay(&dashboard, GENERIC_CARD, "Intervall Schrittmotor", "µs");
-Card dash_step_slider(&dashboard, SLIDER_CARD, "Intervallkorrektur", "µs", -500, 500);
+Card dash_stepinterval(&dashboard, GENERIC_CARD, "Intervall Schrittmotor", "µs");
+Card dash_stepoffset(&dashboard, SLIDER_CARD, "Intervallkorrektur", "µs", -500, 500);
 Card dash_change_dir(&dashboard, BUTTON_CARD, "Richtung umkehren");
 Card dash_reset_slider(&dashboard, SLIDER_CARD, "Plattform zurücksetzen", "min", 0-PLATFORM_MAX_RUNTIME, PLATFORM_MAX_RUNTIME);
 Card dash_reset_last(&dashboard, BUTTON_CARD, "Letzte Plattformbewegung zurücksetzen");
 Card dash_runtime(&dashboard, GENERIC_CARD, "Laufzeit", "min");
 char _buffer[11];
 bool shaft = false;
-uint32_t stepdelay = STEPINTERVAL_SIDERAL;
+uint32_t stepinterval = STEPINTERVAL_SIDERAL;
 unsigned long time_last_web_update = 0;
 unsigned long time_last_step = 0;
 long runtime = 0;
@@ -81,10 +80,10 @@ void setup(void)
   File f = LittleFS.open(F("/config.txt"), "r");
   if(f) {
     String stored_delay = f.readString();
-    stepdelay = STEPINTERVAL_SIDERAL + stored_delay.toInt();
-    Serial.print("Adjusting from config.txt: stepdelay ");
-    Serial.println(stepdelay);
-    dash_step_slider.update(stored_delay);
+    stepinterval = STEPINTERVAL_SIDERAL + stored_delay.toInt();
+    Serial.print("Adjusting from config.txt: stepinterval ");
+    Serial.println(stepinterval);
+    dash_stepoffset.update(stored_delay);
   } else {
     Serial.println("Cannot read config file");
   }
@@ -142,10 +141,9 @@ void setup(void)
   server.begin();
 
   /* Setup Dash Callbacks */
-  dash_step_slider.attachCallback([&](int value){
-    Serial.println("Slider Callback Triggered: "+String(value));
-    dash_step_slider.update(value);
-    stepdelay = STEPINTERVAL_SIDERAL + value;
+  dash_stepoffset.attachCallback([&](int value){
+    dash_stepoffset.update(value);
+    stepinterval = STEPINTERVAL_SIDERAL + value;
     // store delay and direction to config file
     File f = LittleFS.open(F("/config.txt"), "w");
     f.print(String(value));
@@ -153,28 +151,25 @@ void setup(void)
     dashboard.sendUpdates();
   });
   dash_change_dir.attachCallback([&](bool value){
-    Serial.println("[dash_change_dir] Button Callback Triggered: "+String((value)?"true":"false"));
     dash_change_dir.update(value);
     flipDirection();
     dashboard.sendUpdates();
   });
   dash_reset_last.attachCallback([&](bool value){
-    Serial.println("[dash_reset_last] Button Callback Triggered: "+String((value)?"true":"false"));
     if (value && runtime > PLATFORM_ACCEL_DECEL_TIME) {
       int reset_factor = (int)(runtime - PLATFORM_ACCEL_DECEL_TIME);
-      reset_plattform(reset_factor);
+      reset_platform(reset_factor);
     }
   });
   dash_reset_slider.attachCallback([&](int value){
-    Serial.println("Reset Slider Callback Triggered: "+String(value));
       dash_reset_slider.update(value);
     dashboard.sendUpdates();
     if(value <0) {
       flipDirection();
-      reset_plattform(60*-value);
+      reset_platform(-60*value);
       flipDirection();
     } else {
-      reset_plattform(60*value);
+      reset_platform(60*value);
     }
     dash_reset_slider.update(0);
     dashboard.sendUpdates();
@@ -206,25 +201,25 @@ void flipDirection()
 
 void set_speed(long new_speed) {
   Serial.print("Changing speed from ");
-  Serial.print(stepdelay);
+  Serial.print(stepinterval);
   Serial.print(" to ");
   Serial.println(new_speed);
-  stepdelay = new_speed;
+  stepinterval = new_speed;
 }
-void reset_plattform(long amount) {
-  Serial.print("Resetting plattform ");
+void reset_platform(long amount) {
+  Serial.print("Resetting platform ");
   Serial.print(amount + PLATFORM_ACCEL_DECEL_TIME);
   Serial.println(" runtime seconds");
 
   flipDirection();
-  // Accelerate plattform
+  // Accelerate platform
   for (uint16_t i = 8000; i>0; i--) {
     digitalWrite(STEP_PIN, HIGH);
     ESP.wdtFeed(); // clear watchdog timer
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(50+i/50);
   }
-  // Reset given amount for plattform
+  // Reset given amount for platform
   for (unsigned long i = amount; i>0; i--) {
         ESP.wdtFeed(); // clear watchdog timer
     for(int k = 82; k>0; k--) { // reset 1 second of runtime per loop
@@ -233,7 +228,7 @@ void reset_plattform(long amount) {
         delayMicroseconds(50);
     }
   }
-  // Deccelerate plattform
+  // Deccelerate platform
   for (uint16_t i = 0; i<8000; i++) {
     digitalWrite(STEP_PIN, HIGH);
     ESP.wdtFeed(); // clear watchdog timer
@@ -241,7 +236,7 @@ void reset_plattform(long amount) {
     delayMicroseconds(50+i/50);
   }
   flipDirection();
-  Serial.println("Finished resetting plattform");
+  Serial.println("Finished resetting platform");
   runtime = 0;
   dash_runtime.update(0);
 }
@@ -251,25 +246,25 @@ void loop()
   unsigned long current_micros = micros();
 
   // Send next step if necessary
-  if (current_micros - time_last_step >= stepdelay) {
+  if (current_micros - time_last_step >= stepinterval) {
     digitalWrite(STEP_PIN, HIGH);
     time_last_step = current_micros;
     digitalWrite(STEP_PIN, LOW);
   }
   
-  // Update Webinterface if necessary
-  if (current_micros - time_last_web_update >= WEB_UPDATE_RATE) {
+  // Update Webinterface and handle OTA-Updates if necessary
+  if (current_micros - time_last_web_update >= WEB_UPDATE_RATE * 1000000) {
     time_last_web_update = current_micros;
-    runtime += WEB_UPDATE_RATE / 1000000;
+    runtime += WEB_UPDATE_RATE;
     /* Update Card Values */
-    dash_step_delay.update((int)stepdelay);
+    dash_stepinterval.update((int)stepinterval);
     dash_runtime.update((float)runtime/60); // display runtime in minutes
     /* Send Updates to our Dashboard (realtime) */
     dashboard.sendUpdates();
     ArduinoOTA.handle();
   }
 
-  // Reset plattform if maximum runtime is exceeded
+  // Reset platform if maximum runtime is exceeded
   if (runtime >= (PLATFORM_MAX_RUNTIME*60-PLATFORM_ACCEL_DECEL_TIME))
-    reset_plattform(runtime);
+    reset_platform(runtime);
 }
