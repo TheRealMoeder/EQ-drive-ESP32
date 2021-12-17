@@ -24,7 +24,10 @@
 /* Platform Settings */
 #define PLATFORM_MAX_RUNTIME 50 // in minutes
 #define PLATFORM_ACCEL_DECEL_TIME 196 // time needed for platform acceleration an decelaration in seconds
-#define STEPINTERVAL_SIDERAL 12233 // sideral step interval for 32 microsteps : 12233 (depends on individual platform design and gear ratio)
+#define STEPINTERVAL_SIDERAL 12233 // sideral step interval for 32 microsteps (depends on individual platform design and gear ratio)
+#define STEPINTERVAL_LUNAR 11943 // lunar step interval for 32 microsteps (depends on individual platform design and gear ratio)
+#define STEPINTERVAL_SOLAR 12200 // lunar step interval for 32 microsteps (depends on individual platform design and gear ratio)
+
 
 /* Setup Stepper-driver for TMC2209 */
 #define EN_PIN           D5 // Enable
